@@ -54,7 +54,7 @@ The `kama(NAME, VAL_TYPE)` macro generates:
 
 ## Benchmarks
 
-Measured against [Abseil's `flat_hash_map`](https://abseil.io/) with `absl::string_view` for fairness. Lower `ns/op`, `c/op` and higher `Mop/s` is better.
+Measured against [Abseil's `flat_hash_map`](https://abseil.io/) with `absl::string_view` for fairness. Lower `ns/op` and higher `Mop/s` is better.
 
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┓
