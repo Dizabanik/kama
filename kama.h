@@ -463,32 +463,41 @@ static KAMA_INLINE
 		size_t idx = hash & mask;                                              \
 		KAMA_PREFETCH((const void *)(map->ctrl + idx));                        \
 		KAMA_PREFETCH((const void *)(map->meta + idx));                        \
-		uint64_t query_inline_key = 0;                                         \
-		if (len <= 8)                                                          \
-			memcpy(&query_inline_key, key, len);                               \
 		int8_t h2 = (int8_t)(KAMA_H2(hash) & 0x7F);                            \
 		uint32_t hash32 = (uint32_t)hash;                                      \
 		KAMA_SIMD_SETUP(h2)                                                    \
-		while (1) {                                                            \
-			KAMA_SIMD_LOOP(map->ctrl, idx, target)                             \
-			while (match) {                                                    \
-				int bit = kama_ctz(match);                                     \
-				size_t probe = (idx + (size_t)bit) & mask;                     \
-				if (map->meta[probe].hash == hash32 &&                         \
-					map->meta[probe].len == (uint32_t)len) {                   \
-					if (len <= 8) {                                            \
-						if (map->slots[probe].key.inline_key ==                \
-							query_inline_key)                                  \
-							return probe;                                      \
-					} else if (kama_key_eq(map->slots[probe].key.ptr, key,     \
-										   len)) {                             \
+		if (len <= 8) {                                                        \
+			uint64_t query_inline_key = 0;                                     \
+			memcpy(&query_inline_key, key, len);                               \
+			while (1) {                                                        \
+				KAMA_SIMD_LOOP(map->ctrl, idx, target)                         \
+				while (match) {                                                \
+					int bit = kama_ctz(match);                                 \
+					size_t probe = (idx + (size_t)bit) & mask;                 \
+					if (map->meta[probe].hash == hash32 &&                     \
+						map->meta[probe].len == (uint32_t)len &&               \
+						map->slots[probe].key.inline_key == query_inline_key)  \
 						return probe;                                          \
-					}                                                          \
+					match &= ~(((kama_simd_mask)1) << bit);                    \
 				}                                                              \
-				match &= ~(((kama_simd_mask)1) << bit);                        \
+				KAMA_CHECK_EMPTY(map->ctrl, idx)                               \
+				idx = (idx + KAMA_GROUP_WIDTH) & mask;                         \
 			}                                                                  \
-			KAMA_CHECK_EMPTY(map->ctrl, idx)                                   \
-			idx = (idx + KAMA_GROUP_WIDTH) & mask;                             \
+		} else {                                                               \
+			while (1) {                                                        \
+				KAMA_SIMD_LOOP(map->ctrl, idx, target)                         \
+				while (match) {                                                \
+					int bit = kama_ctz(match);                                 \
+					size_t probe = (idx + (size_t)bit) & mask;                 \
+					if (map->meta[probe].hash == hash32 &&                     \
+						map->meta[probe].len == (uint32_t)len &&               \
+						kama_key_eq(map->slots[probe].key.ptr, key, len))      \
+						return probe;                                          \
+					match &= ~(((kama_simd_mask)1) << bit);                    \
+				}                                                              \
+				KAMA_CHECK_EMPTY(map->ctrl, idx)                               \
+				idx = (idx + KAMA_GROUP_WIDTH) & mask;                         \
+			}                                                                  \
 		}                                                                      \
 	}                                                                          \
                                                                                \
@@ -521,64 +530,103 @@ static KAMA_INLINE
 		size_t idx = hash32 & mask;                                            \
 		size_t first_del = map->capacity;                                      \
 		KAMA_SIMD_SETUP(h2)                                                    \
-		uint64_t inline_k = 0;                                                 \
-		if (len <= 8)                                                          \
+		if (len <= 8) {                                                        \
+			uint64_t inline_k = 0;                                             \
 			memcpy(&inline_k, key, len);                                       \
-		while (1) {                                                            \
-			KAMA_SIMD_LOOP(map->ctrl, idx, target)                             \
-			while (match) {                                                    \
-				int bit = kama_ctz(match);                                     \
-				size_t probe = (idx + (size_t)bit) & mask;                     \
-				if (map->meta[probe].hash == hash32 &&                         \
-					map->meta[probe].len == (uint32_t)len) {                   \
-					if (len <= 8) {                                            \
+			while (1) {                                                        \
+				KAMA_SIMD_LOOP(map->ctrl, idx, target)                         \
+				while (match) {                                                \
+					int bit = kama_ctz(match);                                 \
+					size_t probe = (idx + (size_t)bit) & mask;                 \
+					if (map->meta[probe].hash == hash32 &&                     \
+						map->meta[probe].len == (uint32_t)len) {               \
 						if (map->slots[probe].key.inline_key == inline_k) {    \
 							map->slots[probe].val = val;                       \
 							return;                                            \
 						}                                                      \
-					} else if (kama_key_eq(map->slots[probe].key.ptr, key,     \
-										   len)) {                             \
-						map->slots[probe].val = val;                           \
 						return;                                                \
 					}                                                          \
-					return;                                                    \
+					match &= ~(((kama_simd_mask)1) << bit);                    \
 				}                                                              \
-				match &= ~(((kama_simd_mask)1) << bit);                        \
-			}                                                                  \
                                                                                \
-			uint32_t empties_dels;                                             \
-			KAMA_GET_INSERT_MASK(empties_dels, map, idx, vec);                 \
-			if (empties_dels) {                                                \
-				while (empties_dels) {                                         \
-					int bit = kama_ctz(empties_dels);                          \
-					size_t probe = (idx + (size_t)bit) & mask;                 \
-					if (map->ctrl[probe] == (int8_t)KAMA_CTRL_EMPTY) {         \
-						size_t ins =                                           \
-							(first_del != map->capacity) ? first_del : probe;  \
-						if (first_del != map->capacity)                        \
-							map->tombstones--;                                 \
-                                                                               \
-						map->ctrl[ins] = h2;                                   \
-						map->ctrl[((ins - KAMA_GROUP_WIDTH) & map->capacity) + \
-								  ins] = h2;                                   \
-                                                                               \
-						map->meta[ins].hash = hash32;                          \
-						map->meta[ins].len = (uint32_t)len;                    \
-						if (len <= 8) {                                        \
+				uint32_t empties_dels;                                         \
+				KAMA_GET_INSERT_MASK(empties_dels, map, idx, vec);             \
+				if (empties_dels) {                                            \
+					while (empties_dels) {                                     \
+						int bit = kama_ctz(empties_dels);                      \
+						size_t probe = (idx + (size_t)bit) & mask;             \
+						if (map->ctrl[probe] == (int8_t)KAMA_CTRL_EMPTY) {     \
+							size_t ins = (first_del != map->capacity)          \
+											 ? first_del                       \
+											 : probe;                          \
+							if (first_del != map->capacity)                    \
+								map->tombstones--;                             \
+							map->ctrl[ins] = h2;                               \
+							map->ctrl[((ins - KAMA_GROUP_WIDTH) &              \
+									   map->capacity) +                        \
+									  ins] = h2;                               \
+							map->meta[ins].hash = hash32;                      \
+							map->meta[ins].len = (uint32_t)len;                \
 							map->slots[ins].key.inline_key = inline_k;         \
-						} else {                                               \
-							map->slots[ins].key.ptr = key;                     \
+							map->slots[ins].val = val;                         \
+							map->size++;                                       \
+							return;                                            \
 						}                                                      \
-						map->slots[ins].val = val;                             \
-						map->size++;                                           \
+						if (first_del == map->capacity)                        \
+							first_del = probe;                                 \
+						empties_dels &= ~(((kama_simd_mask)1) << bit);         \
+					}                                                          \
+				}                                                              \
+				idx = (idx + KAMA_GROUP_WIDTH) & mask;                         \
+			}                                                                  \
+		} else {                                                               \
+			while (1) {                                                        \
+				KAMA_SIMD_LOOP(map->ctrl, idx, target)                         \
+				while (match) {                                                \
+					int bit = kama_ctz(match);                                 \
+					size_t probe = (idx + (size_t)bit) & mask;                 \
+					if (map->meta[probe].hash == hash32 &&                     \
+						map->meta[probe].len == (uint32_t)len) {               \
+						if (kama_key_eq(map->slots[probe].key.ptr, key,        \
+										len)) {                                \
+							map->slots[probe].val = val;                       \
+							return;                                            \
+						}                                                      \
 						return;                                                \
 					}                                                          \
-					if (first_del == map->capacity)                            \
-						first_del = probe;                                     \
-					empties_dels &= ~(((kama_simd_mask)1) << bit);             \
+					match &= ~(((kama_simd_mask)1) << bit);                    \
 				}                                                              \
+                                                                               \
+				uint32_t empties_dels;                                         \
+				KAMA_GET_INSERT_MASK(empties_dels, map, idx, vec);             \
+				if (empties_dels) {                                            \
+					while (empties_dels) {                                     \
+						int bit = kama_ctz(empties_dels);                      \
+						size_t probe = (idx + (size_t)bit) & mask;             \
+						if (map->ctrl[probe] == (int8_t)KAMA_CTRL_EMPTY) {     \
+							size_t ins = (first_del != map->capacity)          \
+											 ? first_del                       \
+											 : probe;                          \
+							if (first_del != map->capacity)                    \
+								map->tombstones--;                             \
+							map->ctrl[ins] = h2;                               \
+							map->ctrl[((ins - KAMA_GROUP_WIDTH) &              \
+									   map->capacity) +                        \
+									  ins] = h2;                               \
+							map->meta[ins].hash = hash32;                      \
+							map->meta[ins].len = (uint32_t)len;                \
+							map->slots[ins].key.ptr = key;                     \
+							map->slots[ins].val = val;                         \
+							map->size++;                                       \
+							return;                                            \
+						}                                                      \
+						if (first_del == map->capacity)                        \
+							first_del = probe;                                 \
+						empties_dels &= ~(((kama_simd_mask)1) << bit);         \
+					}                                                          \
+				}                                                              \
+				idx = (idx + KAMA_GROUP_WIDTH) & mask;                         \
 			}                                                                  \
-			idx = (idx + KAMA_GROUP_WIDTH) & mask;                             \
 		}                                                                      \
 	}                                                                          \
                                                                                \
