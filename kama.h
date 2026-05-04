@@ -33,6 +33,12 @@
 
 #define KAMA_MATCH(a, b) kama_int_cmpeq_mask(a, b)
 
+#if defined(__GNUC__) || defined(__clang__)
+#define KAMA_UNUSED __attribute__((unused))
+#else
+#define KAMA_UNUSED
+#endif
+
 // We try to identificate the SIMD system
 #if defined(__AVX512BW__)
 #include <immintrin.h>
@@ -440,7 +446,7 @@ static KAMA_INLINE
 		size_t tombstones;                                                     \
 	} NAME##_t;                                                                \
                                                                                \
-	static void NAME##_init(NAME##_t *map, size_t cap) {                       \
+	static KAMA_UNUSED void NAME##_init(NAME##_t *map, size_t cap) {           \
 		if (cap < KAMA_GROUP_WIDTH)                                            \
 			cap = KAMA_GROUP_WIDTH;                                            \
 		size_t n = 1;                                                          \
@@ -462,7 +468,7 @@ static KAMA_INLINE
 		memset(map->ctrl, KAMA_CTRL_EMPTY, sz_c);                              \
 	}                                                                          \
                                                                                \
-	static void NAME##_free(NAME##_t *map) {                                   \
+	static KAMA_UNUSED void NAME##_free(NAME##_t *map) {                       \
 		if (map->heap)                                                         \
 			KAMA_ALIGNED_FREE(map->heap);                                      \
 		map->ctrl = NULL;                                                      \
@@ -514,8 +520,8 @@ static KAMA_INLINE
 		}                                                                      \
 	}                                                                          \
                                                                                \
-	static int NAME##_get(NAME##_t *map, const char *key, size_t len,          \
-						  VAL_TYPE *out) {                                     \
+	static KAMA_UNUSED int NAME##_get(NAME##_t *map, const char *key,          \
+									  size_t len, VAL_TYPE *out) {             \
 		size_t idx = NAME##_find_idx(map, key, len);                           \
 		if (idx != map->capacity) {                                            \
 			*out = map->slots[idx].val;                                        \
@@ -524,7 +530,8 @@ static KAMA_INLINE
 		return 0;                                                              \
 	}                                                                          \
                                                                                \
-	static int NAME##_delete(NAME##_t *map, const char *key, size_t len) {     \
+	static KAMA_UNUSED int NAME##_delete(NAME##_t *map, const char *key,       \
+										 size_t len) {                         \
 		size_t idx = NAME##_find_idx(map, key, len);                           \
 		if (idx == map->capacity)                                              \
 			return 0;                                                          \
@@ -643,7 +650,7 @@ static KAMA_INLINE
 		}                                                                      \
 	}                                                                          \
                                                                                \
-	static void NAME##_resize(NAME##_t *map, size_t new_cap) {                 \
+	static KAMA_UNUSED void NAME##_resize(NAME##_t *map, size_t new_cap) {     \
 		NAME##_t new_map;                                                      \
 		NAME##_init(&new_map, new_cap);                                        \
 		for (size_t i = 0; i < map->capacity; ++i) {                           \
@@ -661,8 +668,8 @@ static KAMA_INLINE
 		*map = new_map;                                                        \
 	}                                                                          \
                                                                                \
-	static void NAME##_put(NAME##_t *map, const char *key, size_t len,         \
-						   VAL_TYPE val) {                                     \
+	static KAMA_UNUSED void NAME##_put(NAME##_t *map, const char *key,         \
+									   size_t len, VAL_TYPE val) {             \
 		if (KAMA_UNLIKELY((map->size + map->tombstones) >=                     \
 						  map->resize_threshold)) {                            \
 			if (map->size < map->resize_threshold / 2)                         \
@@ -673,6 +680,16 @@ static KAMA_INLINE
 		uint64_t hash = kama_rapidhash(key, len, KAMA_SEED);                   \
 		NAME##_put_hashed(map, key, len, val, (uint32_t)hash,                  \
 						  (int8_t)(KAMA_H2(hash) & 0x7F));                     \
+	}                                                                          \
+	static KAMA_INLINE const char *NAME##_key(const NAME##_t *map,             \
+											  size_t idx) {                    \
+		return (map->meta[idx].len <= 8)                                       \
+				   ? (const char *)&map->slots[idx].key.inline_key             \
+				   : map->slots[idx].key.ptr;                                  \
+	}                                                                          \
+                                                                               \
+	static KAMA_INLINE VAL_TYPE NAME##_val(const NAME##_t *map, size_t idx) {  \
+		return map->slots[idx].val;                                            \
 	}
 
 #define KAMA_H2_32(hash) ((hash) >> 25)
@@ -695,7 +712,7 @@ static KAMA_INLINE
 		size_t tombstones;                                                     \
 	} NAME##_t;                                                                \
                                                                                \
-	static void NAME##_init(NAME##_t *map, size_t cap) {                       \
+	static KAMA_UNUSED void NAME##_init(NAME##_t *map, size_t cap) {           \
 		if (cap < KAMA_GROUP_WIDTH)                                            \
 			cap = KAMA_GROUP_WIDTH;                                            \
 		size_t n = 1;                                                          \
@@ -715,7 +732,7 @@ static KAMA_INLINE
 		memset(map->ctrl, KAMA_CTRL_EMPTY, sz_c);                              \
 	}                                                                          \
                                                                                \
-	static void NAME##_free(NAME##_t *map) {                                   \
+	static KAMA_UNUSED void NAME##_free(NAME##_t *map) {                       \
 		if (map->heap)                                                         \
 			KAMA_ALIGNED_FREE(map->heap);                                      \
 		map->ctrl = NULL;                                                      \
@@ -744,7 +761,8 @@ static KAMA_INLINE
 		}                                                                      \
 	}                                                                          \
                                                                                \
-	static int NAME##_get(NAME##_t *map, uint32_t key, VAL_TYPE *out) {        \
+	static KAMA_UNUSED int NAME##_get(NAME##_t *map, uint32_t key,             \
+									  VAL_TYPE *out) {                         \
 		size_t idx = NAME##_find_idx(map, key);                                \
 		if (idx != map->capacity) {                                            \
 			*out = map->slots[idx].val;                                        \
@@ -753,7 +771,7 @@ static KAMA_INLINE
 		return 0;                                                              \
 	}                                                                          \
                                                                                \
-	static int NAME##_delete(NAME##_t *map, uint32_t key) {                    \
+	static KAMA_UNUSED int NAME##_delete(NAME##_t *map, uint32_t key) {        \
 		size_t idx = NAME##_find_idx(map, key);                                \
 		if (idx == map->capacity)                                              \
 			return 0;                                                          \
@@ -811,7 +829,7 @@ static KAMA_INLINE
 		}                                                                      \
 	}                                                                          \
                                                                                \
-	static void NAME##_resize(NAME##_t *map, size_t new_cap) {                 \
+	static KAMA_UNUSED void NAME##_resize(NAME##_t *map, size_t new_cap) {     \
 		NAME##_t new_map;                                                      \
 		NAME##_init(&new_map, new_cap);                                        \
 		for (size_t i = 0; i < map->capacity; ++i) {                           \
@@ -825,7 +843,8 @@ static KAMA_INLINE
 		*map = new_map;                                                        \
 	}                                                                          \
                                                                                \
-	static void NAME##_put(NAME##_t *map, uint32_t key, VAL_TYPE val) {        \
+	static KAMA_UNUSED void NAME##_put(NAME##_t *map, uint32_t key,            \
+									   VAL_TYPE val) {                         \
 		if (KAMA_UNLIKELY((map->size + map->tombstones) >=                     \
 						  map->resize_threshold)) {                            \
 			if (map->size < map->resize_threshold / 2)                         \
@@ -836,6 +855,17 @@ static KAMA_INLINE
 		uint32_t hash = kama_hash_u32(key);                                    \
 		NAME##_put_hashed(map, key, val, hash,                                 \
 						  (int8_t)(KAMA_H2_32(hash) & 0x7F));                  \
+	}                                                                          \
+	static KAMA_INLINE uint32_t NAME##_key(const NAME##_t *map, size_t idx) {  \
+		return map->slots[idx].key;                                            \
+	}                                                                          \
+                                                                               \
+	static KAMA_INLINE VAL_TYPE NAME##_val(const NAME##_t *map, size_t idx) {  \
+		return map->slots[idx].val;                                            \
 	}
+
+#define kama_foreach(MAP_PTR, IDX_VAR)                                         \
+	for (size_t IDX_VAR = 0; IDX_VAR < (MAP_PTR)->capacity; ++IDX_VAR)         \
+		if (((MAP_PTR)->ctrl[IDX_VAR] & 0x80) == 0)
 
 #endif

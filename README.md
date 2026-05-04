@@ -88,6 +88,32 @@ The `kama_u32(NAME, VAL_TYPE)` macro generates the same functions as `kama`, but
 
 Keys are hashed with a fast 32-bit mixer rather than RapidHash, and no metadata array is needed since the key is stored directly in the slot.
 
+## Iteration
+
+You can iterate over any generated map using the `kama_foreach` macro. It performs a fast, cache-friendly linear scan, automatically skipping empty and deleted slots. 
+```c
+...
+kama_u32(imap, float)
+kama(smap, int)
+
+int main(void) {
+    imap_t map_i;
+    smap_t map_s;
+    ...
+
+    // Iterate over the map
+    kama_foreach(&map_i, i) {
+        printf("Key: %u, Value: %f\n", imap_key(&map_i, i), imap_val(&map_i, i));
+    }
+    kama_foreach(&map_s, i) {
+        printf("Key: %u, Value: %f\n", smap_key(&map_s, i), smap_val(&map_s, i));
+    }
+
+    ...
+}
+
+Use `NAME_val(map, index)` to get value at index in foreach loop, and `NAME_key(map, index)` to get key.
+
 ---
 
 ## Benchmarks
