@@ -10,6 +10,7 @@ A fast, single-header string hash map for C. Built around a Swiss-table layout w
 - **Type-safe via macro codegen** - `kama(mymap, int)` generates a fully typed map
 - **SIMD probe acceleration** - AVX-512, AVX2, SSE2, ARM NEON, with a scalar fallback
 - **Short key optimization** - keys ≤ 8 bytes are stored inline, no pointer indirection
+- **Integer key variant** - `kama_u32(mymap, int)` for `uint32_t` keys with a dedicated integer hash
 - **RapidHash** - a fast, high-quality 64-bit hash function embedded directly
 - **Load factor ~85%** with tombstone-aware resizing
 
@@ -50,33 +51,70 @@ The `kama(NAME, VAL_TYPE)` macro generates:
 | `NAME_delete(map, key, len)`   | Mark slot as deleted            |
 | `NAME_free(map)`               | Release all memory              |
 
+## Integer key variant
+
+For `uint32_t` keys, use `kama_u32` instead:
+
+```c
+#include "kama.h"
+
+kama_u32(imap, float)
+
+int main(void) {
+    imap_t map;
+    imap_init(&map, 64);
+
+    imap_put(&map, 42, 3.14f);
+
+    float val;
+    if (imap_get(&map, 42, &val))
+        printf("%f\n", val); // 3.14
+
+    imap_delete(&map, 42);
+
+    imap_free(&map);
+}
+```
+
+The `kama_u32(NAME, VAL_TYPE)` macro generates the same functions as `kama`, but without the `len` parameter:
+
+| Function                  | Description                     |
+| ------------------------- | ------------------------------- |
+| `NAME_init(map, cap)`     | Initialize with a capacity hint |
+| `NAME_put(map, key, val)` | Insert or overwrite             |
+| `NAME_get(map, key, out)` | Lookup, returns 1 on hit        |
+| `NAME_delete(map, key)`   | Mark slot as deleted            |
+| `NAME_free(map)`          | Release all memory              |
+
+Keys are hashed with a fast 32-bit mixer rather than RapidHash, and no metadata array is needed since the key is stored directly in the slot.
+
 ---
 
 ## Benchmarks
 
-Measured against [Abseil's `flat_hash_map`](https://abseil.io/) with `absl::string_view` for fairness. Lower `ns/op` and higher `Mop/s` is better.
+Measured kama (string keys) against [Abseil's `flat_hash_map`](https://abseil.io/) with `absl::string_view` for fairness. Lower `ns/op`, `c/op` and higher `Mop/s` is better.
 
 ```
-┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┓
-┃                        ┃      kama ┃    kama ┃    abseil ┃  abseil ┃      Δ vs ┃
-┃ Benchmark              ┃     Mop/s ┃   ns/op ┃     Mop/s ┃   ns/op ┃    abseil ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━┩
-│ insert_grow            │     36.30 │    27.5 │     26.28 │    38.0 │    +38.1% │
-│ insert_prealloc        │    114.55 │     8.7 │     28.26 │    35.4 │   +305.3% │
-│ insert_overwrite       │     50.99 │    19.6 │     47.14 │    21.2 │     +8.2% │
-│ lookup_hit             │     51.10 │    19.6 │     50.39 │    19.9 │     +1.4% │
-│ lookup_miss            │    199.33 │     5.0 │    118.67 │     8.4 │    +68.0% │
-│ lookup_mixed           │     59.48 │    16.8 │     56.82 │    17.6 │     +4.7% │
-│ lookup_tombstone       │     49.89 │    20.0 │     44.52 │    22.5 │    +12.1% │
-│ delete_all             │     51.81 │    19.3 │     36.67 │    27.3 │    +41.3% │
-│ delete_random_half     │     19.21 │    52.1 │     15.16 │    66.0 │    +26.7% │
-│ churn                  │     55.15 │    18.1 │     40.51 │    24.7 │    +36.1% │
-│ read_heavy_90_10       │     47.14 │    21.2 │     46.93 │    21.3 │     +0.5% │
-│ write_heavy_10_90      │    116.53 │     8.6 │     30.63 │    32.6 │   +280.5% │
-│ mixed_crud             │     19.19 │    52.1 │     16.06 │    62.2 │    +19.5% │
-│ zipfian_hotpath        │      3.82 │   262.1 │      3.45 │   289.6 │    +10.5% │
-│ insert_fixed_16b       │    138.17 │     7.2 │     27.77 │    36.0 │   +397.5% │
-└────────────────────────┴───────────┴─────────┴───────────┴─────────┴───────────┘
+┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┓
+┃                        ┃      kama ┃    kama ┃    kama ┃    abseil ┃  abseil ┃  abseil ┃      Δ vs ┃
+┃ Benchmark              ┃     Mop/s ┃   ns/op ┃    c/op ┃     Mop/s ┃   ns/op ┃    c/op ┃    abseil ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━┩
+│ insert_grow            │     36.30 │    27.5 │   124.2 │     26.28 │    38.0 │   171.6 │    +38.1% │
+│ insert_prealloc        │    114.55 │     8.7 │    39.4 │     28.26 │    35.4 │   159.6 │   +305.3% │
+│ insert_overwrite       │     50.99 │    19.6 │    88.5 │     47.14 │    21.2 │    95.7 │     +8.2% │
+│ lookup_hit             │     51.10 │    19.6 │    88.2 │     50.39 │    19.9 │    89.5 │     +1.4% │
+│ lookup_miss            │    199.33 │     5.0 │    22.6 │    118.67 │     8.4 │    38.0 │    +68.0% │
+│ lookup_mixed           │     59.48 │    16.8 │    75.8 │     56.82 │    17.6 │    79.4 │     +4.7% │
+│ lookup_tombstone       │     49.89 │    20.0 │    90.4 │     44.52 │    22.5 │   101.3 │    +12.1% │
+│ delete_all             │     51.81 │    19.3 │    87.0 │     36.67 │    27.3 │   123.0 │    +41.3% │
+│ delete_random_half     │     19.21 │    52.1 │   234.8 │     15.16 │    66.0 │   297.6 │    +26.7% │
+│ churn                  │     55.15 │    18.1 │    81.8 │     40.51 │    24.7 │   111.3 │    +36.1% │
+│ read_heavy_90_10       │     47.14 │    21.2 │    95.7 │     46.93 │    21.3 │    96.1 │     +0.5% │
+│ write_heavy_10_90      │    116.53 │     8.6 │    38.7 │     30.63 │    32.6 │   147.3 │   +280.5% │
+│ mixed_crud             │     19.19 │    52.1 │   235.0 │     16.06 │    62.2 │   280.8 │    +19.5% │
+│ zipfian_hotpath        │      3.82 │   262.1 │  1182.0 │      3.45 │   289.6 │  1306.1 │    +10.5% │
+│ insert_fixed_16b       │    138.17 │     7.2 │    32.6 │     27.77 │    36.0 │   162.4 │   +397.5% │
+└────────────────────────┴───────────┴─────────┴─────────┴───────────┴─────────┴─────────┴───────────┘
 ```
 
 The biggest wins are in write-heavy workloads, as pre-allocated insertion is 4x faster, write-heavy mixed traffic is 3.8x faster, and miss lookups are 68% faster. In read-heavy or overwrite-dominated workloads the gap narrows, but kama stays ahead.
@@ -112,7 +150,6 @@ The correct path is selected at compile time via preprocessor. No runtime dispat
 ## Caveats
 
 - **Keys are not copied.** For keys longer than 8 bytes, kama stores the pointer as-is. The caller is responsible for keeping the key alive.
-- **String-keyed only.** The API takes `const char *` + `size_t len`. If you need integer keys, wrap them.
 - **Not thread-safe.** No locking of any kind.
 - **GCC/Clang only.** The header uses GCC/Clang extensions (`__attribute__`, `__builtin_*`). MSVC is partially supported.
 
