@@ -409,9 +409,7 @@ static KAMA_INLINE
 #define KAMA_GET_INSERT_MASK(res, map, idx, vec)                               \
 	res = kama_match_empty_or_del(map->ctrl, idx)
 #else
-#define KAMA_SIMD_SETUP(h2)                                                    \
-	kama_simd_int target = kama_int_set1(h2);                                  \
-	kama_simd_int empty_v = kama_int_set1((int8_t)KAMA_CTRL_EMPTY);
+#define KAMA_SIMD_SETUP(h2) kama_simd_int target = kama_int_set1(h2);
 #define KAMA_SIMD_LOOP(ctrl, idx, target)                                      \
 	kama_simd_int vec = kama_int_load(ctrl + idx);                             \
 	kama_simd_mask match = KAMA_MATCH(vec, target);
@@ -485,6 +483,7 @@ static KAMA_INLINE
 		int8_t h2 = (int8_t)(KAMA_H2(hash) & 0x7F);                            \
 		uint32_t hash32 = (uint32_t)hash;                                      \
 		KAMA_SIMD_SETUP(h2)                                                    \
+		kama_simd_int empty_v = kama_int_set1((int8_t)KAMA_CTRL_EMPTY);        \
 		if (len <= 8) {                                                        \
 			uint64_t query_inline_key = 0;                                     \
 			memcpy(&query_inline_key, key, len);                               \
@@ -550,6 +549,7 @@ static KAMA_INLINE
 		size_t idx = hash32 & mask;                                            \
 		size_t first_del = map->capacity;                                      \
 		KAMA_SIMD_SETUP(h2)                                                    \
+		kama_simd_int empty_v = kama_int_set1((int8_t)KAMA_CTRL_EMPTY);        \
 		if (len <= 8) {                                                        \
 			uint64_t inline_k = 0;                                             \
 			memcpy(&inline_k, key, len);                                       \
