@@ -90,7 +90,8 @@ Keys are hashed with a fast 32-bit mixer rather than RapidHash, and no metadata 
 
 ## Iteration
 
-You can iterate over any generated map using the `kama_foreach` macro. It performs a fast, cache-friendly linear scan, automatically skipping empty and deleted slots. 
+You can iterate over any generated map using the `kama_foreach` macro. It performs a fast, cache-friendly linear scan, automatically skipping empty and deleted slots.
+
 ```c
 ...
 kama_u32(imap, float)
@@ -111,6 +112,7 @@ int main(void) {
 
     ...
 }
+```
 
 Use `NAME_val(map, index)` to get value at index in foreach loop, and `NAME_key(map, index)` to get key.
 
